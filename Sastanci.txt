@@ -1,0 +1,5 @@
+Sastanak 1 :
+- Kreiranje idejnog resenja aplikacije 
+- Dogovaranje za korisnicke price
+- Odabir tehnologija za razvoj resenja
+- Definisanje klijentskih zahteva 
