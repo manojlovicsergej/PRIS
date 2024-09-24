@@ -1,5 +1,26 @@
-Sastanak 1 :
+Sastanak 1 (23.9.2024):
 - Kreiranje idejnog resenja aplikacije 
 - Dogovaranje za korisnicke price
 - Odabir tehnologija za razvoj resenja
-- Definisanje klijentskih zahteva 
+- Definisanje klijentskih zahteva
+- Ucesnici : Stefan Kalafatic, Sergej Manojlovic
+
+Sastanak 2 (24.9.2024):
+
+- Tema : Planiranje projekta razvoja aplikacije za optimizaciju ruta
+- Ucesnici : Stefan Kalafatic, Sergej Manojlovic
+- Planiranje sprintova :
+	- Ukupan broj sprintova: 3.
+   	- Cilj je podeliti funkcionalnosti projekta u tri sprinta kako bi se postepeno izgradila aplikacija.
+   	- Svaki sprint je planiran tako da traje nekoliko dana, simulirajući tipični proces u Agile metodologiji.
+- Podele korisnickih prica:
+   	- Korisnicke price su podeljene prema prioritetu i slozenosti.
+   	- Ukupno vreme procenjeno u satima kako bi se prilagodilo vremenskom okviru projekta (43 sata ukupno).
+- Specifikacija po sprintevima:
+   	- Sprint 1: Implementacija osnovne funkcionalnosti, unos lokacija, optimizacija ruta, interaktivna mapa.
+   	- Sprint 2: Dodavanje informacija o znamenitostima, generisanje PDF-a.
+   	- Sprint 3: Offline rezim, deljenje ruta, obavestenja o saobracaju.
+- Zakljucci:
+	- Planiranje projekta je zavrseno, korisnicke price su podeljene po sprintevima.
+	- Implementacija se moze zapoceti, koristeci Python za razvoj desktop aplikacije.
+

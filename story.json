@@ -1,0 +1,105 @@
+{
+  "product_backlog": [
+    {
+      "story_id": "story_1",
+      "description": "Kao korisnik, želim da unesem više lokacija u aplikaciju kako bih dobio najbolju rutu između njih.",
+      "acceptance_criteria": [
+        "Korisnik može uneti više od jedne lokacije.",
+        "Aplikacija vraća optimizovanu rutu između lokacija.",
+        "Ruta je optimizovana po kriterijumu najkraće razdaljine ili najbržeg puta."
+      ],
+      "story_points": 5,
+      "priority": "high"
+    },
+    {
+      "story_id": "story_2",
+      "description": "Kao korisnik, želim da vidim informacije o znamenitostima duž rute.",
+      "acceptance_criteria": [
+        "Aplikacija prikazuje ime i osnovne informacije o svakoj znamenitosti na ruti.",
+        "Informacije su prilagođene interesovanjima korisnika."
+      ],
+      "story_points": 3,
+      "priority": "high"
+    },
+    {
+      "story_id": "story_3",
+      "description": "Kao korisnik, želim da generišem PDF sa slikama i imenima znamenitosti na mojoj ruti.",
+      "acceptance_criteria": [
+        "Aplikacija generiše PDF sa informacijama o znamenitostima.",
+        "PDF sadrži slike i imena svih znamenitosti duž optimizovane rute."
+      ],
+      "story_points": 8,
+      "priority": "medium"
+    },
+    {
+      "story_id": "story_4",
+      "description": "Kao korisnik, želim da prilagodim rutu na osnovu mojih interesovanja, kao što su umetnost ili istorija.",
+      "acceptance_criteria": [
+        "Korisnik može da filtrira rutu prema kategorijama (umetnost, istorija, arhitektura).",
+        "Aplikacija nudi preporuke za znamenitosti na osnovu korisnikovih preferencija."
+      ],
+      "story_points": 5,
+      "priority": "medium"
+    },
+    {
+      "story_id": "story_5",
+      "description": "Kao administrator, želim da mogu da dodajem i ažuriram informacije o znamenitostima.",
+      "acceptance_criteria": [
+        "Administrator može dodavati nove znamenitosti sa relevantnim informacijama (ime, slika, opis, GPS koordinate).",
+        "Administrator može ažurirati postojeće informacije."
+      ],
+      "story_points": 8,
+      "priority": "low"
+    },
+    {
+      "story_id": "story_6",
+      "description": "Kao korisnik, želim da mogu sačuvati i podeliti svoju personalizovanu rutu sa drugim korisnicima.",
+      "acceptance_criteria": [
+        "Korisnik može sačuvati kreiranu rutu.",
+        "Korisnik može deliti rutu sa drugim korisnicima putem aplikacije ili linka."
+      ],
+      "story_points": 4,
+      "priority": "medium"
+    },
+    {
+      "story_id": "story_7",
+      "description": "Kao korisnik, želim da aplikacija automatski računa vreme putovanja između znamenitosti kako bih mogao bolje da planiram svoju turu.",
+      "acceptance_criteria": [
+        "Aplikacija računa vreme putovanja između svake znamenitosti.",
+        "Korisnik vidi ukupno vreme trajanja ture."
+      ],
+      "story_points": 5,
+      "priority": "high"
+    },
+    {
+      "story_id": "story_8",
+      "description": "Kao korisnik, želim da aplikacija funkcioniše i u offline režimu kako bih mogao da koristim vodič i bez interneta.",
+      "acceptance_criteria": [
+        "Aplikacija omogućava preuzimanje informacija o ruti i znamenitostima.",
+        "Korisnik može pregledati preuzetu rutu i znamenitosti offline."
+      ],
+      "story_points": 7,
+      "priority": "high"
+    },
+    {
+      "story_id": "story_9",
+      "description": "Kao korisnik, želim da vidim pregled rute na interaktivnoj mapi kako bih bolje vizualizovao turu.",
+      "acceptance_criteria": [
+        "Aplikacija prikazuje optimizovanu rutu na interaktivnoj mapi.",
+        "Korisnik može videti tačne lokacije znamenitosti na mapi."
+      ],
+      "story_points": 6,
+      "priority": "medium"
+    },
+    {
+      "story_id": "story_10",
+      "description": "Kao korisnik, želim da dobijam obaveštenja o promenama u saobraćaju ili radovima na putu kako bih mogao da prilagodim svoju rutu.",
+      "acceptance_criteria": [
+        "Aplikacija šalje obaveštenja o promenama na ruti u realnom vremenu.",
+        "Korisnik dobija obaveštenja o alternativnim putevima."
+      ],
+      "story_points": 6,
+      "priority": "low"
+    }
+  ]
+}
