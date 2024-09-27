@@ -24,3 +24,9 @@ Sastanak 2 (24.9.2024):
 	- Planiranje projekta je zavrseno, korisnicke price su podeljene po sprintevima.
 	- Implementacija se moze zapoceti, koristeci Python za razvoj desktop aplikacije.
 
+Sastanak 3  (26.9.2024)
+
+- Tema : Razvoj python desktop aplikacije
+- Ucesnici : Stefan Kalafatic, Sergej Manojlovic
+- Zakljucci : Kreirana python aplikacija koja nam na osnovu unetih ruta pokazuje najkraci moguci put i prikazuje nam duzinu puta
+
