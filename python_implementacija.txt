@@ -2,89 +2,645 @@ import tkinter as tk
 from tkinter import messagebox
 import googlemaps
 import webbrowser
+import sqlite3
+import hashlib
+from fpdf import FPDF
+import os
+import requests
+from tkinter import simpledialog
 
-gmaps = googlemaps.Client(key='')
 
-# Funkcija za dobijanje optimalne rute i vremena putovanja
-def calculate_route():
-    locations = location_entry.get("1.0", "end-1c").split("\n")
-    locations = [loc for loc in locations if loc.strip()]  # Filtriramo prazne linije
+# Povezivanje na SQLite bazu podataka
+conn = sqlite3.connect('app.db')
+c = conn.cursor()
+
+# Kreiranje tabele za rute (personalizovane rute korisnika)
+c.execute('''
+CREATE TABLE IF NOT EXISTS routes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    route_name TEXT,  -- Dodana kolona za naziv rute
+    landmarks TEXT,
+    FOREIGN KEY(user_id) REFERENCES users(id)
+)
+''')
+
+
+# Kreiranje tabele korisnika (admin, pisci sadržaja, obični korisnici)
+c.execute('''
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT,
+    email TEXT,
+    password TEXT,
+    role TEXT  -- admin, content_writer, registered_user
+)
+''')
+
+# Kreiranje tabele za znamenitosti (pišu ih pisci sadržaja)
+c.execute('''
+CREATE TABLE IF NOT EXISTS landmarks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT,
+    short_description TEXT,  -- Kraći opis znamenitosti
+    description TEXT,
+    location TEXT,
+    image_url TEXT
+)
+''')
+
+conn.commit()
+
+# Funkcija za brisanje znamenitosti iz baze
+def delete_landmark_by_name_part(name_part):
+    try:
+        # Koristimo LIKE za brisanje znamenitosti koja sadrži "name_part"
+        c.execute("DELETE FROM landmarks WHERE name LIKE ?", ('%' + name_part + '%',))
+        conn.commit()
+        
+        # Proveravamo da li je nešto obrisano
+        if c.rowcount > 0:
+            messagebox.showinfo("Uspeh", f"Znamenitost sa '{name_part}' u imenu je obrisana.")
+        else:
+            messagebox.showwarning("Upozorenje", f"Nema znamenitosti sa '{name_part}' u imenu.")
+    except Exception as e:
+        messagebox.showerror("Greška", f"Došlo je do greške: {e}")
+
+# Funkcija za hesiranje lozinki
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
+
+# Funkcija za registraciju korisnika
+def register_user(username, email, password, role):
+    hashed_password = hash_password(password)
+    c.execute("INSERT INTO users (username, email, password, role) VALUES (?, ?, ?, ?)", 
+              (username, email, hashed_password, role))
+    conn.commit()
+
+# Funkcija za logovanje korisnika
+def login_user(username, password):
+    hashed_password = hash_password(password)
+    c.execute("SELECT * FROM users WHERE username=? AND password=?", (username, hashed_password))
+    user = c.fetchone()
+    if user:
+        return user  # Vraća podatke o korisniku ako su uneti podaci ispravni
+    else:
+        return None  # Logovanje nije uspelo
+
+# Funkcija za preuzimanje slike s interneta i čuvanje lokalno
+def download_image(image_url, local_filename):
+    try:
+        response = requests.get(image_url, stream=True)
+        if response.status_code == 200:
+            with open(local_filename, 'wb') as out_file:
+                out_file.write(response.content)
+            return local_filename
+        else:
+            print(f"Neuspešno preuzimanje slike: {image_url}")
+            return None
+    except Exception as e:
+        print(f"Greška prilikom preuzimanja slike: {e}")
+        return None
+
+# Funkcija za generisanje PDF vodiča sa lokalnim slikama
+def generate_pdf(landmarks):
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+
+    pdf.set_font('Arial', 'B', 16)
+    pdf.cell(200, 10, txt="Tour Guide", ln=True, align='C')
+
+    pdf.set_font('Arial', '', 12)
+
+    for landmark in landmarks:
+        name = landmark[1]  # Ime znamenitosti
+        description = landmark[2]  # Dugi opis
+        image_path = landmark[4]  # Putanja do lokalne slike
+
+        # Dodavanje naslova
+        pdf.ln(10)
+        pdf.cell(200, 10, txt=name, ln=True, align='L')
+
+        # Dodavanje opisa
+        pdf.multi_cell(0, 10, description)
+
+        # Ako postoji putanja slike, dodaj je u PDF
+        if image_path and os.path.exists(image_path):
+            try:
+                # Učitaj sliku u PDF (JPEG ili PNG)
+                pdf.image(image_path, w=100, h=75)
+            except Exception as e:
+                print(f"Greška prilikom dodavanja slike u PDF: {e}")
+        else:
+            pdf.cell(200, 10, txt="Slika nije dostupna", ln=True, align='L')
+
+    # Čuvanje PDF-a
+    pdf_file = "tour_guide.pdf"
+    pdf.output(pdf_file)
+
+    # Otvori PDF nakon generisanja
+    os.system(f'start {pdf_file}')  # Windows; za macOS/Linux koristi open ili xdg-open
+
+
+# Funkcija za generisanje rute pomoću Google Maps API i kreiranje PDF-a
+def generate_route_and_pdf(landmarks):
+    gmaps = googlemaps.Client(key='')  # Zameni sa tvojim Google Maps API ključem
     
+    locations = [landmark[3] for landmark in landmarks]  # Uzimamo lokacije iz baze
+
     if len(locations) < 2:
-        messagebox.showerror("Greška", "Unesite barem dve lokacije!")
+        messagebox.showerror("Greška", "Morate izabrati barem dve lokacije za kreiranje rute!")
         return
     
-    mode = travel_mode.get()  # Uzimamo mod transporta (peške ili kolima)
-    total_distance = 0  # Ukupna udaljenost
-    total_duration = 0  # Ukupno vreme trajanja
-    
     try:
-        # Dobijamo matricu razdaljina izmedju lokacija
-        matrix = gmaps.distance_matrix(locations, locations, mode=mode)
-        distance_info = ""
-        
-        # Prikazujemo udaljenosti i vreme putovanja između svake tačke
-        for i in range(len(locations) - 1):
-            element = matrix['rows'][i]['elements'][i+1]
-            distance = element['distance']['value']  # Udaljenost u metrima
-            duration = element['duration']['value']  # Vreme u sekundama
-            
-            # Prikazivanje u ljudskom formatu (kilometri, minuti)
-            distance_text = element['distance']['text']
-            duration_text = element['duration']['text']
-            
-            distance_info += f"Od {locations[i]} do {locations[i+1]}: {distance_text}, trajanje: {duration_text}\n"
-            
-            total_distance += distance  # Sabiramo ukupnu udaljenost (u metrima)
-            total_duration += duration  # Sabiramo ukupno trajanje (u sekundama)
-        
-        # Prikazujemo rezultate u poruci
-        total_distance_km = total_distance / 1000  # Ukupna udaljenost u kilometrima
-        total_duration_min = total_duration / 60  # Ukupno vreme u minutima
-        
-        messagebox.showinfo("Ruta i Vreme", 
-                            f"{distance_info}\nUkupno trajanje: {total_duration_min:.2f} minuta\n"
-                            f"Ukupno udaljenost: {total_distance_km:.2f} kilometara")
-        
-        # Generišemo URL za prikaz rute na Google Maps
-        generate_google_maps_route(locations, mode)
-    
+        # Dobijanje optimalne rute koristeći Distance Matrix API za pešačenje
+        matrix = gmaps.distance_matrix(origins=locations, destinations=locations, mode="walking")
+
+        # Generisanje URL-a za Google Maps rutu
+        base_url = "https://www.google.com/maps/dir/?api=1&"
+        origin = locations[0]
+        destination = locations[-1]
+        waypoints = '|'.join(locations[1:-1])
+
+        if waypoints:
+            maps_url = f"{base_url}origin={origin}&destination={destination}&waypoints={waypoints}&travelmode=walking"
+        else:
+            maps_url = f"{base_url}origin={origin}&destination={destination}&travelmode=walking"
+
+        # Otvaranje rute u pretraživaču
+        webbrowser.open(maps_url)
+
+        # Generisanje PDF vodiča
+        generate_pdf(landmarks)
+
     except Exception as e:
         messagebox.showerror("Greška", f"Nešto nije u redu: {e}")
 
-# Funkcija za generisanje Google Maps rute i otvaranje u pretraživaču
-def generate_google_maps_route(locations, mode):
-    base_url = "https://www.google.com/maps/dir/?api=1&"
-    origin = locations[0]
-    destination = locations[-1]
-    waypoints = '|'.join(locations[1:-1])
-    
-    # Kreiranje Google Maps URL-a sa parametrima za mod transporta
-    if waypoints:
-        maps_url = f"{base_url}origin={origin}&destination={destination}&waypoints={waypoints}&travelmode={mode}"
-    else:
-        maps_url = f"{base_url}origin={origin}&destination={destination}&travelmode={mode}"
-    
-    # Otvaranje rute u pretraživaču
-    webbrowser.open(maps_url)
 
-# Kreiramo GUI koristeći tkinter
+conn.commit()
+
+# Funkcija za čuvanje rute u bazi
+def save_route(user_id, route_name, selected_landmarks):
+    # Transformišemo znamenitosti u string
+    landmarks_string = ','.join([landmark[1] for landmark in selected_landmarks])  # Čuva imena znamenitosti
+    c.execute("INSERT INTO routes (user_id, route_name, landmarks) VALUES (?, ?, ?)", 
+              (user_id, route_name, landmarks_string))
+    conn.commit()
+    messagebox.showinfo("Uspeh", f"Ruta '{route_name}' je uspešno sačuvana!")
+
+
+# Funkcija za preuzimanje svih ruta korisnika
+def get_user_routes(user_id):
+    c.execute("SELECT * FROM routes WHERE user_id=?", (user_id,))
+    return c.fetchall()
+
+# Funkcija za preuzimanje znamenitosti iz sačuvane rute
+def get_landmarks_from_route(route):
+    # Četvrti element (index 3) u 'route' je string znamenitosti
+    landmarks_string = route  # Kolona 'landmarks' čuva imena znamenitosti u ruti
+    landmark_names = landmarks_string.split(',') if landmarks_string else []  # Delimo string po zarezima
+
+    if not landmark_names:
+        return []  # Ako nema znamenitosti, vraća prazan spisak
+
+    # Preuzimamo znamenitosti po imenima
+    return get_landmarks_by_names(landmark_names)  # Funkcija vraća listu objekata znamenitosti
+
+
+# Funkcija za otvaranje sačuvane rute i generisanje PDF-a
+def load_saved_route(user):
+    routes = get_user_routes(user[0])  # Preuzimanje svih ruta korisnika
+    if not routes:
+        messagebox.showwarning("Upozorenje", "Nemate sačuvanih ruta.")
+        return
+
+     # Prikazujemo sačuvane rute u OptionMenu sa lepšim stilom
+    saved_route_var = tk.StringVar()
+    saved_route_var.set("Izaberite sačuvanu rutu")
+
+    # Pravimo listu opcija u željenom formatu
+    route_options = [f"{route[2]} - {route[3]}" for route in routes]  # route[2] je naziv rute, route[3] je lista znamenitosti
+
+    route_frame = tk.Frame(root)  # Kreiramo frame za bolju kontrolu rasporeda
+    route_frame.pack(pady=10)
+
+    # Stilizovani OptionMenu za prikaz sačuvanih ruta
+    route_dropdown = tk.OptionMenu(route_frame, saved_route_var, *route_options)
+    route_dropdown.config(font=("Arial", 12), width=40, bg="#f0f0f0", fg="black")  # Stilizacija OptionMenu
+    route_dropdown["menu"].config(font=("Arial", 12))  # Stilizacija menija u OptionMenu
+    route_dropdown.pack(pady=5)
+
+    def open_route():
+        for route in routes:
+            if saved_route_var.get() == f"{route[2]} - {route[3]}":  # Proveravamo koja ruta je odabrana
+                # Preuzimanje znamenitosti sačuvanih u ruti (koristeći imena iz stringa)
+                landmarks_in_route = get_landmarks_from_route(route[2])  # Prosleđujemo ceo zapis iz tabele
+                # Provera da li su znamenitosti ispravno preuzete
+                if landmarks_in_route and len(landmarks_in_route) > 0:
+                    # Generisanje PDF-a sa preuzetim znamenitostima
+                    generate_route_and_pdf(landmarks_in_route)
+                else:
+                    messagebox.showerror("Greška", "Neuspešno otvaranje rute.")
+
+    # Lepše stilizovano dugme za otvaranje rute
+    tk.Button(root, text="Otvori rutu", command=open_route, font=("Arial", 12), bg="#4CAF50", fg="white", 
+              width=20, height=2).pack(pady=10)
+
+
+
+# Funkcija za preuzimanje svih podataka o znamenitostima na osnovu imena
+def get_landmarks_by_names(landmark_names):
+    # Pretvaramo imena znamenitosti u placeholder-e za SQL upit
+    placeholders = ', '.join('?' for _ in landmark_names)  # Pravimo placeholder za svako ime
+    c.execute(f"SELECT * FROM landmarks WHERE name IN ({placeholders})", landmark_names)
+    return c.fetchall()  # Vraćamo ceo red iz tabele za svaku znamenitost
+
+
+
+def save_route(user_id, route_name, selected_landmarks):
+    # Konvertuj listu znamenitosti u string razdvojen zarezima
+    landmark_names = ','.join([landmark[1] for landmark in selected_landmarks])  # Uzimamo ime znamenitosti
+    c.execute("INSERT INTO routes (user_id, route_name, landmarks) VALUES (?, ?, ?)",
+              (user_id, route_name, landmark_names))
+    conn.commit()
+    messagebox.showinfo("Uspeh", "Ruta uspešno sačuvana.")
+
+
+# Funkcija za unos imena rute i poziv funkcije za čuvanje rute
+def save_route_prompt(user, selected_landmarks):
+    if selected_landmarks:
+        route_name = simpledialog.askstring("Naziv rute", "Unesite naziv za rutu:")
+        if route_name:
+            save_route(user[0], route_name, selected_landmarks)
+    else:
+        messagebox.showerror("Greška", "Morate izabrati barem jednu znamenitost pre nego što sačuvate rutu.")
+
+# Funkcija za preuzimanje svih znamenitosti
+def get_all_landmarks():
+    c.execute("SELECT * FROM landmarks")
+    return c.fetchall()
+
+# Funkcija za dodavanje znamenitosti (za pisce sadržaja)
+def add_landmark(name, short_description, description, location, image_url):
+    c.execute("INSERT INTO landmarks (name, description, location, image_url, short_description) VALUES (?, ?, ?, ?, ?)", 
+              (name, short_description, description, location, image_url))
+    conn.commit()
+# Funkcija za prikaz menija za pisca sadržaja sa stilizovanim poljima
+def content_writer_menu(user):
+    for widget in root.winfo_children():
+        widget.destroy()
+
+    tk.Label(root, text="Dodaj znamenitost", font=("Arial", 16, "bold")).pack(pady=10)
+
+    # Stilizovano polje za unos imena znamenitosti
+    tk.Label(root, text="Ime znamenitosti:", font=("Arial", 12)).pack(anchor="w", padx=10)
+    name_entry = tk.Entry(root, font=("Arial", 12), width=40)
+    name_entry.pack(pady=5)
+
+    # Stilizovano polje za kraći opis (maksimalno 20 karaktera)
+    tk.Label(root, text="Kraći opis (do 20 karaktera):", font=("Arial", 12)).pack(anchor="w", padx=10)
+    short_description_entry = tk.Entry(root, font=("Arial", 12), width=40)
+    short_description_entry.pack(pady=5)
+
+    # Stilizovano polje za duži opis (više linija)
+    tk.Label(root, text="Dugi opis:", font=("Arial", 12)).pack(anchor="w", padx=10)
+    description_entry = tk.Text(root, font=("Arial", 12), width=40, height=8)  # Polje za unos dužeg opisa u visinu
+    description_entry.pack(pady=5)
+
+    # Stilizovano polje za unos lokacije
+    tk.Label(root, text="Lokacija (adresa):", font=("Arial", 12)).pack(anchor="w", padx=10)
+    location_entry = tk.Entry(root, font=("Arial", 12), width=40)
+    location_entry.pack(pady=5)
+
+    # Stilizovano polje za unos URL-a slike
+    tk.Label(root, text="URL slike:", font=("Arial", 12)).pack(anchor="w", padx=10)
+    image_url_entry = tk.Entry(root, font=("Arial", 12), width=40)
+    image_url_entry.pack(pady=5)
+
+    # Funkcija za čuvanje znamenitosti
+    def save_landmark():
+        name = name_entry.get()
+        description = description_entry.get("1.0", "end-1c")  # Uzima tekst iz Text widgeta
+        location = location_entry.get()
+        image_url = image_url_entry.get()
+        short_description = short_description_entry.get()
+
+        if len(short_description) > 20:
+            messagebox.showerror("Greška", "Kraći opis mora imati najviše 20 karaktera!")
+            return
+        
+        if not name or not short_description or not description or not location or not image_url:
+            messagebox.showerror("Greška", "Sva polja moraju biti popunjena!")
+            return
+
+        add_landmark(name, description, location, image_url,short_description)
+        messagebox.showinfo("Uspeh", f"Znamenitost '{name}' je uspešno dodata!")
+
+        # Resetovanje polja nakon uspešnog dodavanja znamenitosti
+        name_entry.delete(0, 'end')  # Brisanje sadržaja iz Entry polja
+        short_description_entry.delete(0, 'end')
+        description_entry.delete("1.0", "end")  # Brisanje sadržaja iz Text polja
+        location_entry.delete(0, 'end')
+        image_url_entry.delete(0, 'end')
+
+    # Stilizovano dugme za čuvanje znamenitosti
+    tk.Button(root, text="Sačuvaj znamenitost", command=save_landmark, font=("Arial", 12), bg="#4CAF50", fg="white", 
+              width=20, height=2).pack(pady=10)
+
+    # Stilizovano dugme za logout (nazad)
+    tk.Button(root, text="Logout", command=start_page, font=("Arial", 12), bg="#d9534f", fg="white", 
+              width=20, height=2).pack(side="bottom", pady=20)
+
+
+# Funkcija za prikaz menija za registrovanog korisnika sa OptionMenu
+def registered_user_menu(user):
+    for widget in root.winfo_children():
+        widget.destroy()
+
+    tk.Label(root, text="Izaberite znamenitost za kreiranje rute").pack()
+
+    landmarks = get_all_landmarks()
+    
+    if not landmarks:
+        messagebox.showwarning("Upozorenje", "Nema dostupnih znamenitosti.")
+        return
+    
+    # Napravi promenljivu za odabranu znamenitost
+    selected_landmark = tk.StringVar()
+    selected_landmark.set("Izaberite znamenitost")  # Podrazumevana prva znamenitost
+
+    # Kreiraj stilizovan OptionMenu za izbor znamenitosti
+    landmark_options = [f"{landmark[1]} - {landmark[5]}" for landmark in landmarks]  # Ime i kraći opis
+
+    tk.Label(root, text="Izaberite znamenitost:", font=("Arial", 14)).pack(pady=10)  # Lepši naslov
+
+    dropdown_frame = tk.Frame(root)  # Kreiramo frame da bi mogli bolje upravljati widgetima
+    dropdown_frame.pack(pady=10)
+
+    dropdown = tk.OptionMenu(dropdown_frame, selected_landmark, *landmark_options)
+    dropdown.config(font=("Arial", 12), width=25, bg="#f0f0f0", fg="black")  # Stilizacija OptionMenu
+    dropdown["menu"].config(font=("Arial", 12))  # Stilizacija padajuće liste
+    dropdown.pack(pady=5)
+
+    selected_landmarks = []
+
+    def select_landmark():
+        # Pronađi znamenitost na osnovu izbora
+        for landmark in landmarks:
+            if selected_landmark.get() == f"{landmark[1]} - {landmark[5]}":
+                if landmark not in selected_landmarks:
+                    selected_landmarks.append(landmark)
+                    messagebox.showinfo("Informacija", f"Dodali ste znamenitost: {landmark[1]}")
+                else:
+                    messagebox.showwarning("Upozorenje", f"Znamenitost {landmark[1]} je već dodata.")
+
+    def create_route():
+        if selected_landmarks:
+            generate_route_and_pdf(selected_landmarks)
+        else:
+            messagebox.showerror("Greška", "Morate izabrati barem jednu znamenitost!")
+
+    # Dodavanje lepših dugmadi sa stilom
+    tk.Button(root, text="Dodaj znamenitost", command=select_landmark, font=("Arial", 12),
+              bg="#4CAF50", fg="white", width=20, height=2).pack(pady=5)
+    tk.Button(root, text="Kreiraj rutu i PDF", command=create_route, font=("Arial", 12),
+              bg="#008CBA", fg="white", width=20, height=2).pack(pady=5)
+    tk.Button(root, text="Sačuvaj rutu", command=lambda: save_route_prompt(user, selected_landmarks),
+              font=("Arial", 12), bg="#FFA500", fg="white", width=20, height=2).pack(pady=5)
+    tk.Button(root, text="Učitaj sačuvanu rutu", command=lambda: load_saved_route(user),
+              font=("Arial", 12), bg="#f0ad4e", fg="white", width=20, height=2).pack(pady=5)
+
+    # Dugme za logout pozicionirano na dnu
+    tk.Button(root, text="Logout", command=start_page, font=("Arial", 12), bg="#d9534f", fg="white",
+              width=20, height=2).pack(side="bottom", pady=20)
+
+
+# Funkcija za prikazivanje menija za logovanje
+# Funkcija za prikazivanje menija za logovanje
+def login_menu():
+    for widget in root.winfo_children():
+        widget.destroy()
+
+    # Podesimo naslov sa većim fontom i marginama
+    tk.Label(root, text="Prijavi se", font=("Arial", 16), pady=20).pack()
+
+    # Podesimo labelu i unos za korisničko ime
+    tk.Label(root, text="Korisničko ime:", font=("Arial", 12)).pack(pady=5)
+    username_entry = tk.Entry(root, font=("Arial", 12), width=30)
+    username_entry.pack(pady=5)
+
+    # Podesimo labelu i unos za lozinku
+    tk.Label(root, text="Lozinka:", font=("Arial", 12)).pack(pady=5)
+    password_entry = tk.Entry(root, show="*", font=("Arial", 12), width=30)
+    password_entry.pack(pady=5)
+
+    # Funkcija za pokušaj logovanja
+    def try_login():
+        username = username_entry.get()
+        password = password_entry.get()
+        user = login_user(username, password)
+        if user:
+            messagebox.showinfo("Uspeh", f"Uspešno ste prijavljeni kao {user[1]} ({user[4]})")
+            if user[4] == "admin":
+                admin_menu(user)
+            elif user[4] == "content_writer":
+                content_writer_menu(user)
+            elif user[4] == "registered_user":
+                registered_user_menu(user)
+        else:
+            messagebox.showerror("Greška", "Pogrešno korisničko ime ili lozinka.")
+
+    # Dugme za prijavu sa stilom
+    tk.Button(root, text="Prijavi se", command=try_login, font=("Arial", 12), bg="#4CAF50", fg="white",
+              width=20, height=2).pack(pady=20)
+
+    # Dugme "Nazad" postavljeno na dno sa stilom
+    tk.Button(root, text="Nazad", command=start_page, font=("Arial", 12), bg="#d9534f", fg="white",
+              width=20, height=2).pack(side="bottom", pady=20)
+
+# Funkcija za prikazivanje menija za registraciju
+def register_menu():
+    for widget in root.winfo_children():
+        widget.destroy()
+
+    # Naslov sa većim fontom i marginom
+    tk.Label(root, text="Registruj se", font=("Arial", 16), pady=20).pack()
+
+    # Polje za korisničko ime
+    tk.Label(root, text="Korisničko ime:", font=("Arial", 12)).pack(pady=5)
+    username_entry = tk.Entry(root, font=("Arial", 12), width=30)
+    username_entry.pack(pady=5)
+
+    # Polje za email
+    tk.Label(root, text="Email:", font=("Arial", 12)).pack(pady=5)
+    email_entry = tk.Entry(root, font=("Arial", 12), width=30)
+    email_entry.pack(pady=5)
+
+    # Polje za lozinku
+    tk.Label(root, text="Lozinka:", font=("Arial", 12)).pack(pady=5)
+    password_entry = tk.Entry(root, show="*", font=("Arial", 12), width=30)
+    password_entry.pack(pady=5)
+
+    # Opcije za izbor uloge
+    tk.Label(root, text="Izaberi ulogu:", font=("Arial", 12)).pack(pady=5)
+    role_var = tk.StringVar(value="registered_user")
+    tk.Radiobutton(root, text="Admin", variable=role_var, value="admin", font=("Arial", 12)).pack(pady=2)
+    tk.Radiobutton(root, text="Pisac sadržaja", variable=role_var, value="content_writer", font=("Arial", 12)).pack(pady=2)
+    tk.Radiobutton(root, text="Običan korisnik", variable=role_var, value="registered_user", font=("Arial", 12)).pack(pady=2)
+
+    # Funkcija za pokušaj registracije
+    def try_register():
+        username = username_entry.get()
+        email = email_entry.get()
+        password = password_entry.get()
+        role = role_var.get()
+        register_user(username, email, password, role)
+        messagebox.showinfo("Uspeh", f"Uspešno ste registrovani kao {username} ({role})")
+        start_page()  # Vrati na početnu stranicu nakon registracije
+
+    # Dugme za registraciju sa stilom
+    tk.Button(root, text="Registruj se", command=try_register, font=("Arial", 12), bg="#4CAF50", fg="white",
+              width=20, height=2).pack(pady=20)
+
+    # Dugme "Logout" (ranije "Nazad") postavljeno na dno sa stilom
+    tk.Button(root, text="Logout", command=start_page, font=("Arial", 12), bg="#d9534f", fg="white",
+              width=20, height=2).pack(side="bottom", pady=20)
+
+# Funkcija za prikaz menija za admina sa stilizacijom
+def admin_menu(user):
+    for widget in root.winfo_children():
+        widget.destroy()
+
+    # Naslov sa većim fontom i marginom
+    tk.Label(root, text=f"Dobrodošli, {user[1]} (Admin)", font=("Arial", 16), pady=20).pack()
+
+    # Dugme za brisanje znamenitosti sa stilizacijom
+    tk.Button(root, text="Obriši znamenitost", command=delete_landmark_menu, font=("Arial", 12), bg="#d9534f", fg="white",
+              width=20, height=2).pack(pady=10)
+
+    # Dugme "Logout" postavljeno na dno
+    tk.Button(root, text="Logout", command=start_page, font=("Arial", 12), bg="#5bc0de", fg="white", width=20, height=2).pack(side="bottom", pady=20)
+
+# Funkcija za prikazivanje menija za brisanje znamenitosti
+def delete_landmark_menu():
+    for widget in root.winfo_children():
+        widget.destroy()
+
+    # Naslov
+    tk.Label(root, text="Odaberite znamenitost za brisanje:", font=("Arial", 14), pady=10).pack()
+
+    # Učitavanje svih znamenitosti iz baze
+    landmarks = get_all_landmarks()
+
+    if not landmarks:
+        messagebox.showwarning("Upozorenje", "Nema dostupnih znamenitosti za brisanje.")
+        return
+
+    # Napravi promenljivu za odabranu znamenitost
+    selected_landmark = tk.StringVar()
+    selected_landmark.set("Izaberite znamenitost")  # Podrazumevana prva opcija
+
+    # Kreiraj OptionMenu za izbor znamenitosti
+    landmark_options = [landmark[1] for landmark in landmarks]  # Prikazujemo samo ime znamenitosti
+    dropdown = tk.OptionMenu(root, selected_landmark, *landmark_options)
+    dropdown.config(font=("Arial", 12), width=30)
+    dropdown.pack(pady=10)
+
+    # Funkcija za pokušaj brisanja znamenitosti
+    def try_delete_landmark():
+        selected_name = selected_landmark.get()
+        if selected_name != "Izaberite znamenitost":
+            delete_landmark_by_name_part(selected_name)  # Brisanje po imenu
+        else:
+            messagebox.showerror("Greška", "Morate izabrati znamenitost za brisanje.")
+
+    # Dugme za brisanje
+    tk.Button(root, text="Obriši znamenitost", command=try_delete_landmark, font=("Arial", 12), bg="#d9534f", fg="white",
+              width=20, height=2).pack(pady=20)
+
+    # Dugme "Logout" za povratak na admin meni
+    tk.Button(root, text="Logout", command=start_page, font=("Arial", 12), bg="#5bc0de", fg="white",
+              width=20, height=2).pack(side="bottom", pady=20)
+
+# Funkcija za preuzimanje svih znamenitosti iz baze
+def get_all_landmarks():
+    c.execute("SELECT * FROM landmarks")
+    return c.fetchall()
+
+# Funkcija za početnu stranicu
+def start_page():
+    for widget in root.winfo_children():
+        widget.destroy()
+
+    # Naslov sa velikim fontom
+    tk.Label(root, text="Dobrodošli u aplikaciju", font=("Arial", 18), pady=20).pack()
+
+    # Stilizovana dugmad za različite opcije
+    tk.Button(root, text="Prijavi se", command=login_menu, font=("Arial", 12), bg="#5cb85c", fg="white", width=20, height=2).pack(pady=10)
+    tk.Button(root, text="Registruj se", command=register_menu, font=("Arial", 12), bg="#0275d8", fg="white", width=20, height=2).pack(pady=10)
+    tk.Button(root, text="Uđi kao gost", command=guest_menu, font=("Arial", 12), bg="#f0ad4e", fg="white", width=20, height=2).pack(pady=10)
+
+    # Dugme za izlaz (ako je potrebno)
+    tk.Button(root, text="Izlaz", command=root.quit, font=("Arial", 12), bg="#d9534f", fg="white", width=20, height=2).pack(side="bottom", pady=20)
+# Funkcija za neregistrovane korisnike
+def guest_menu():
+    for widget in root.winfo_children():
+        widget.destroy()
+
+    tk.Label(root, text="Izaberite znamenitost za kreiranje rute", font=("Arial", 14)).pack(pady=10)
+
+    landmarks = get_all_landmarks()  # Preuzimamo sve znamenitosti
+    
+    if not landmarks:
+        messagebox.showwarning("Upozorenje", "Nema dostupnih znamenitosti.")
+        return
+
+    # Napravi promenljivu za odabranu znamenitost
+    selected_landmark = tk.StringVar()
+    selected_landmark.set("Izaberite znamenitost")  # Podrazumevana prva znamenitost
+
+    # Kreiraj OptionMenu za izbor znamenitosti
+    landmark_options = [f"{landmark[1]} - {landmark[5]}" for landmark in landmarks]  # Ime i kraći opis
+    dropdown = tk.OptionMenu(root, selected_landmark, *landmark_options)
+    dropdown.pack(pady=10)
+
+    selected_landmarks = []
+
+    # Funkcija za dodavanje odabrane znamenitosti u listu
+    def select_landmark():
+        for landmark in landmarks:
+            if selected_landmark.get() == f"{landmark[1]} - {landmark[5]}":
+                if landmark not in selected_landmarks:
+                    selected_landmarks.append(landmark)
+                    messagebox.showinfo("Informacija", f"Dodali ste znamenitost: {landmark[1]}")
+                else:
+                    messagebox.showwarning("Upozorenje", f"Znamenitost {landmark[1]} je već dodata.")
+
+    # Funkcija za kreiranje rute i PDF-a
+    def create_route():
+        if selected_landmarks:
+            generate_route_and_pdf(selected_landmarks)
+        else:
+            messagebox.showerror("Greška", "Morate izabrati barem jednu znamenitost!")
+
+    # Dodavanje dugmadi za neregistrovanog korisnika
+    tk.Button(root, text="Dodaj znamenitost", command=select_landmark, font=("Arial", 12),
+              bg="#4CAF50", fg="white", width=20, height=2).pack(pady=5)
+    tk.Button(root, text="Kreiraj rutu i PDF", command=create_route, font=("Arial", 12),
+              bg="#008CBA", fg="white", width=20, height=2).pack(pady=5)
+
+    # Dugme za povratak na početnu stranicu (logout)
+    tk.Button(root, text="Logout", command=start_page, font=("Arial", 12), bg="#d9534f", fg="white",
+              width=20, height=2).pack(side="bottom", pady=20)
+
+
+# Kreiranje glavnog GUI prozora
 root = tk.Tk()
 root.title("Planer rute")
+root.geometry("600x600")
+# Pokretanje početne stranice
+start_page()
 
-# Tekstualni okvir za unos lokacija
-tk.Label(root, text="Unesite lokacije (jedna po liniji):").pack()
-location_entry = tk.Text(root, height=10, width=50)
-location_entry.pack()
-
-# Izbor između peške i kolima
-travel_mode = tk.StringVar(value="driving")  # Podrazumevano je vožnja
-tk.Radiobutton(root, text="Kolima", variable=travel_mode, value="driving").pack()
-tk.Radiobutton(root, text="Peške", variable=travel_mode, value="walking").pack()
-
-# Dugme za izračunavanje rute
-calculate_button = tk.Button(root, text="Izračunaj rutu", command=calculate_route)
-calculate_button.pack()
-
-# Pokrećemo glavni loop aplikacije
+# Pokretanje glavne Tkinter petlje
 root.mainloop()
