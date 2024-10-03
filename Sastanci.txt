@@ -41,3 +41,13 @@ Sastanak 4 (29.9.2024)
 	5. cuvanje i ucitavanje ruta	
 - Ucesnici : Stefan Kalafatic, Sergej Manojlovic
 - Zakljucci : Zavrsen sprint 2, uspesne funkcionalnosti za sva 3 tipa korisnika, implementacija projekta privedena kraju
+
+Sastanak 5 (1.10 - 3.10.2024)
+
+- Tema : Završetak razvoja projekta
+- Odradjeno : 
+	1. gui aplikacija završeno
+	2. kreirana prezentacija za softver
+	3. odrađen intervju sa korisnicima
+	4. napisana tehnička dokumentacija
+- Zaključci : Završen sprint 3 i kompletirana aplikacija sa svom tehničkom dokumentacijom i intervjuima. Izrada projekta je ostala u okviru estimiranih granica. Projekat je uspešno odrađen bez nepredviđenih situacija.
